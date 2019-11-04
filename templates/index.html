@@ -1,0 +1,179 @@
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no,
+ width=device-width">
+    <title>高德地图+SZHOME租房</title>
+    <link rel="stylesheet" href="http://cache.amap.com/lbs/static/main1119.css"/>
+    <link rel="stylesheet" href="http://cache.amap.com/lbs/static/jquery.range.css"/>
+    <script src="http://cache.amap.com/lbs/static/jquery-1.9.1.js"></script>
+    <script src="http://cache.amap.com/lbs/static/es5.min.js"></script>
+<style>
+/*面板控制样式*/
+.control-panel {
+    position: absolute;
+    top: 30px;
+    left: 20px;
+}
+/*面板内容样式*/
+.control-entry {
+    width: 290px;
+    background-color: rgba(119, 136, 153, 0.8);
+    font-family: fantasy, sans-serif;
+    text-align: left;
+    color: white;
+    overflow:hidden;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+/*文字与右侧的距离*/
+.control-input {
+    margin-left: 120px;
+}
+/*输入框宽度*/
+.control-input input[type="text"] {
+    width: 160px;
+}
+/*文字样式*/
+.control-panel label {
+    float: left;
+    width: 120px;
+}
+/*路线规划信息窗体样式*/
+#transfer-panel {
+position: absolute;
+background-color: white;
+max-height: 80%;
+overflow-y: auto;
+top: 150px;
+left: 20px;
+width: 250px;
+}
+#container {width: 100%;height: 100%}
+</style>
+
+</head>
+<body>
+<div id="container"></div>
+<!--显示输入地址面板-->
+<div class="control-panel">
+    <div class="control-entry">
+        <label>输入工作地点：</label>
+        <div class="control-input">
+            <input id="input-work-location" type="text">
+        </div>
+    </div>
+    <!--显示导入房源的面板-->
+    <div class="control-entry">
+        <label>导入房源文件：</label>
+        <form method="POST" enctype=multipart/form-data>
+            <div class="control-input">
+                {% csrf_token %}
+                <input type="file" name="file"/>
+                <input type="submit" value="'提 交 ">
+            </div>
+        </form>
+    </div>
+
+</div>
+<div id="transfer-panel"></div>
+<script src="https://webapi.amap.com/maps?v=1.4.15&key=9a12cf0938bc5c6aa26689cc0a16307b&plugin=AMap.Autocomplete,AMap.PlaceSearch,AMap.Geocoder,AMap.Transfer"></script>
+<script>
+    // 存放租房marker
+    var rent_markers = [];
+    //路线规划
+    var amapTransfer;
+
+    // 创建窗体
+    var infoWindow = new AMap.InfoWindow({offset: new AMap.Pixel(0, -30)});
+
+    var map = new AMap.Map('container',
+        {resizeEnable:true, // 是否健康空地图容器尺寸变化
+         zoom:11,   // 初始化地图层级
+         center:[116.397428,39.90923]});  //初始化地图中心点
+
+    AMap.plugin([
+    'AMap.Scale',
+    'AMap.Autocomplete',
+    'AMap.OverView',
+    'AMap.MapType',
+    ], function(){
+        // 在图面添加比例尺控件，展示地图在当前层级和纬度下的比例尺
+        map.addControl(new AMap.Scale());
+        // 在图面添加鹰眼控件，在地图右下角显示地图的缩略图
+        map.addControl(new AMap.OverView({isOpen:true}));
+        // 在图面添加类别切换控件，实现默认图层与卫星图、实施交通图层之间切换的控制
+        map.addControl(new AMap.MapType());
+    });
+
+    //输入提示
+    var auto = new AMap.Autocomplete({
+        input: "input-work-location"
+    });
+
+
+    var start_location, stop_location;
+
+
+    var placeSearch = new AMap.PlaceSearch({map: map});  //构造地点查询类
+    AMap.event.addListener(auto, "select", select);//注册监听，当选中某条记录时会触发
+    function select(e) {
+        // placeSearch.setCity(e.poi.adcode);
+        //placeSearch.search(e.poi.name);  //关键字查询查询
+        map.setZoomAndCenter(12,e.poi.location);
+        marker = new AMap.Marker({position:e.poi.location});
+        marker.setIcon('//a.amap.com/jsapi_demos/static/demo-center/icons/poi-marker-red.png')
+        map.add(marker);
+        start_location = e.poi.location;
+    }
+
+    var geocoder = new AMap.Geocoder({
+            city: "深圳", //默认：“全国”
+    });
+
+    var Dict = {{ Dict | safe }}
+
+    console.log("---  遍历字典  ---");
+    for(i in Dict) {   // i key值
+        geocoder.getLocation(i, function (status, result) {
+            if (status === 'complete' && result.geocodes.length) {
+                var lnglat = result.geocodes[0].location;
+                var marker = new AMap.Marker({position: lnglat});
+
+
+                marker.on('click', function (e) {
+                    infoWindow.setContent(Dict[i]);
+                    infoWindow.open(map, e.target.getPosition());
+
+                    stop_location = e.target.getPosition();
+
+                    //路线规划是否清除
+                    if (amapTransfer) amapTransfer.clear();
+                    //换乘对象
+                    amapTransfer = new AMap.Transfer({
+                        map: map,
+                        policy: AMap.TransferPolicy.LEAST_TIME,
+                        city: "深圳市",
+                        panel: 'transfer-panel'
+                    });
+                    //根据起、终点坐标查询换乘路线
+                    if (start_location){
+                        amapTransfer.search(start_location, stop_location, function(status, result) {})
+                    }
+
+                });
+                map.add(marker);
+                map.setFitView();  // 自适应
+                rent_markers.push(marker);
+            } else {
+                log.error('根据地址查询位置失败');
+            }
+        });
+    }
+
+
+
+</script>
+</body>
+</html>
